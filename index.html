@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Hindi Speech to Text</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 40px;
+      background: #f4f4f4;
+    }
+    h2 {
+      color: #333;
+    }
+    #transcript {
+      margin-top: 20px;
+      background: #fff;
+      padding: 15px;
+      border-radius: 10px;
+      font-size: 18px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      min-height: 100px;
+    }
+    #startBtn {
+      padding: 10px 20px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+
+<h2>🎙️ Speak Hindi — See Transcript</h2>
+<button id="startBtn">Start Listening</button>
+
+<div id="transcript">Transcript will appear here...</div>
+
+<script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+<script>
+  const socket = io("http://localhost:5001"); // Change to your backend URL in production
+
+  const transcriptEl = document.getElementById("transcript");
+  const startBtn = document.getElementById("startBtn");
+
+  socket.on("transcript", (text) => {
+    if (text) {
+      transcriptEl.innerText = text;
+    }
+  });
+
+  startBtn.onclick = async () => {
+    startBtn.disabled = true;
+    startBtn.innerText = "🎤 Listening...";
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const audioContext = new AudioContext({ sampleRate: 16000 });
+    const source = audioContext.createMediaStreamSource(stream);
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+
+    processor.onaudioprocess = (e) => {
+      const input = e.inputBuffer.getChannelData(0);
+
+      if (input.length < 2048) return; // 💡 Drop short chunks that cause Vosk crashes
+
+      const buffer = new ArrayBuffer(input.length * 2);
+      const view = new DataView(buffer);
+
+      for (let i = 0; i < input.length; i++) {
+        let s = Math.max(-1, Math.min(1, input[i]));
+        view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true); // little-endian
+      }
+
+      const rawAudio = new Uint8Array(buffer);
+      const base64 = btoa(String.fromCharCode(...rawAudio));
+
+      if (base64 && base64.length > 0) {
+        socket.emit("audio_chunk", base64);
+      }
+    };
+  };
+</script>
+
+</body>
+</html>
